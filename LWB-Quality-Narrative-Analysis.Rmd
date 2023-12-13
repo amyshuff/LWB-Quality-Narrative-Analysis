@@ -1,0 +1,656 @@
+---
+title: "LWB Quality Narrative Analysis"
+author: "Amy Shuff"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r, results='hide'}
+
+# Only do this once:
+# install.packages(c('knitr', 'usethis', 'tidyverse', 'janitor', 'reshape2', 'stringr', 'here', 'readxl', 'pdftools', 'tidytext'))
+# install.packages('textdata')
+
+library(knitr)
+library(usethis)
+library(tidyverse)
+library(janitor)
+library(reshape2)
+library(stringr)
+library(here)
+library(readxl)
+library(pdftools)
+library(tidytext)
+library(textdata)
+
+```
+
+# Methodology
+
+Jacob found the excel sheet. Find out where it was sourced from and put that information here.
+
+The TidyText R package is being utilized for this analysis:
+<https://www.tidytextmining.com/tidytext>
+
+```{r Data Import, include=FALSE}
+
+# Save the third tab of the xlsx excel file
+# Update the file name when the fourth quarter is available
+narrative.raw <- read_xlsx("QD_TWC_Report_3Q.xlsx", sheet = 3)
+
+```
+
+
+```{r Unnest words tidytext, include=FALSE}
+
+# We need all the text we're interested in a single collumn, so the below moves the Activity Description and Measurable Outcomes all into one column called Text
+narrative.long <- narrative.raw %>% 
+  pivot_longer(cols = c('Activity Description:', 'Measurable Outcome(s)'), names_to = "Description", values_to = "Text")
+
+# Next we take all the Text we're interested in and unnest it to make it tidy, which means we'll have one word per row
+narrative.tidy <- narrative.long %>% 
+  unnest_tokens(word, Text)
+
+```
+
+# Word Count
+
+Stop words (common words such as "it", "the", "to", etc.) were removed. Do we want numbers and punctuation taken out as well?
+
+```{r, Stop Words, include=FALSE}
+
+# Stop words are words that are not useful for an analysis, typically extremely common words such as “the”, “of”, “to”, and so forth in English
+data(stop_words) 
+
+# Here I filter to only one set of stop words. This was the same lexicon I used for the other strategic plans analysis because it left in the words young and work
+stop_words <- stop_words %>% 
+  filter(lexicon == "SMART")
+
+# This would be to remove numbers and punctuation, if wanted
+# words <- narrative.text %>%
+#   mutate(word = gsub(x = word, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = ""))
+
+narrative.nostops <- narrative.tidy %>% 
+  # remove any word that is in our stop word list
+  anti_join(stop_words)
+
+
+```
+
+I then performed a word count.
+
+```{r echo=FALSE}
+
+# This counts the number of times a word is used, sorts it largest to smallest, and adds a rank number
+word.count.total <- narrative.nostops %>% 
+  count(word, sort = TRUE) %>% 
+  mutate(rank = row_number())
+
+# This creates the table
+kable(word.count.total %>% head(., 25),
+  caption = "25 Most Frequently Used Words")
+
+# This creates the chart
+word.count.total %>% 
+  head(., 25) %>% 
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word)) +
+  geom_col() +
+  labs(y = NULL) +
+  labs(title = "Most Frequently Used Words",
+       subtitle = "for all Texas LWBs combined")
+  
+
+```
+
+
+```{r echo=FALSE}
+
+# Now we'll do the same, but for each Board region
+word.count.region <- narrative.nostops %>% 
+  group_by(Board) %>% 
+  count(word, sort = TRUE) %>% 
+  pivot_wider(names_from = Board, values_from = n) %>% 
+  full_join(., word.count.total) %>% 
+  arrange(-n)
+
+# table
+kable(word.count.region %>% head(., 25), caption = "Most Frequently Used Words by Region")
+
+
+word.count.region.25.long <- word.count.region.25 %>% 
+  pivot_longer(cols = Cameron:`Brazos Valley`, names_to = "Region", values_to = "count")
+
+# I don't think this is helpful, but it sure is pretty
+word.count.region.25.long %>% 
+  mutate(word = reorder(word, n)) %>% 
+  ggplot(aes(x = count, y = word, fill = Region)) +
+  geom_col()
+
+
+```
+
+```{r frequency}
+
+frequency <- words %>% 
+  count(Region, word) %>% 
+  group_by(Region) %>% 
+  mutate(proportion = n/sum(n)) %>% 
+  select(-n) %>% 
+  arrange(-proportion) 
+
+# | word == "opportunity", fill = word
+ 
+
+frequency %>% 
+  filter(word == "youth") %>% 
+  ungroup() %>% 
+  mutate(Region = reorder(Region, proportion)) %>%
+  mutate(rank = row_number()) %>% 
+  ggplot(aes(x = proportion, y = Region)) +
+  geom_col() +
+  labs(title = "Youth Mentions by Region",
+       subtitle = "as a proportion of all words used")
+
+
+```
+
+# Sentiment Analysis
+
+Name: AFINN-111 URL:
+<http://www2.imm.dtu.dk/pubdb/views/publication_details.php?id=6010>
+License: Open Database License (ODbL) v1.0
+
+Citation info:
+
+This dataset was published in Saif M. Mohammad and Peter Turney. (2013),
+\`\`Crowdsourcing a Word-Emotion Association Lexicon.'' Computational
+Intelligence, 29(3): 436-465.
+
+article{mohammad13, author = {Mohammad, Saif M. and Turney, Peter D.},
+title = {Crowdsourcing a Word-Emotion Association Lexicon}, journal =
+{Computational Intelligence}, volume = {29}, number = {3}, pages =
+{436-465}, doi = {10.1111/j.1467-8640.2012.00460.x}, url =
+{<https://onlinelibrary.wiley.com/doi/abs/10.1111/j.1467-8640.2012.00460.x>},
+eprint =
+{<https://onlinelibrary.wiley.com/doi/pdf/10.1111/j.1467-8640.2012.00460.x>},
+year = {2013} } If you use this lexicon, then please cite it.
+
+```{r}
+
+# get_sentiments("afinn")
+# get_sentiments("bing")
+# get_sentiments("nrc")
+
+# Value (-5 to 5)
+sentiment.afinn <- get_sentiments("afinn")
+
+# Positive or Negative
+sentiment.bing <- get_sentiments("bing")
+
+# Trust, Fear, Sadness, Anger, Joy, Disgust, Negative, Positive
+sentiment.nrc <- get_sentiments("nrc")
+
+# nrc_joy <- get_sentiments("nrc") %>% 
+#   filter(sentiment == "joy")
+# 
+# nrc_joy_region <- words %>%
+#   group_by(Region) %>%
+#   inner_join(nrc_joy) %>%
+#   count(word, sort = TRUE)
+# 
+# nrc_joy_words <- words %>%
+#   inner_join(nrc_joy) %>%
+#   count(word, sort = TRUE)
+
+
+sentiment.count <- words %>%
+  inner_join(get_sentiments("bing")) %>%
+  group_by(sentiment) %>% 
+  count(word, sort = TRUE) 
+
+
+kable(sentiment.count %>% head(., 10),
+  caption = "10 Most Frequently Used Sentiment Words"
+)
+```
+
+Because "work" is seen as positive in this sentiment dataset, I removed
+it. In these texts I think it's mostly a neutral term.
+
+```{r}
+
+# Remove work
+sentiment.bing <- get_sentiments("bing") %>% 
+  filter(word != "work")
+  
+sentiment.region <- words %>%
+  inner_join(sentiment.bing) %>%
+  count(Region, index = page %/% 5, sentiment) %>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+```
+
+```{r fig.height=12}
+
+ggplot(sentiment.region, aes(index, sentiment, fill = Region)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~Region, ncol = 4, scales = "free_x") +
+  labs(title = "Sentiment of Strategic Plans by Region",
+       subtitle = "by every 5 pages of narrative")
+
+```
+
+# Term Frequency - Inverse Document Frequency (tf-idf)
+
+"The idea of tf-idf is to find the important words for the content of
+each document by decreasing the weight for commonly used words and
+increasing the weight for words that are not used very much in a
+collection or corpus of documents."
+
+None of these words occur in all of the texts. They are important,
+characteristic words for each region.
+
+```{r}
+
+word.count <- words %>% 
+  # Remove numbers and unwanted punctuation
+  mutate(word = gsub(x = word, pattern = "[0-9]", replacement = "")) %>%
+  mutate(word = gsub(x = word, pattern = ",,", replacement = "")) %>%
+  count(Region, word, sort = TRUE)
+
+# This removes all punctuation:
+# mutate(mydata, text = gsub(x = text, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = "")) 
+
+# gsub(x = mydata$text, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = "")
+
+word.tf_idf <- word.count %>% 
+  bind_tf_idf(word, Region, n) %>%
+  arrange(desc(tf_idf))
+
+```
+
+```{r fig.height=24, fig.width=12}
+
+word.tf_idf %>%
+  group_by(Region) %>%
+  slice_max(tf_idf, n = 15) %>%
+  ungroup() %>%
+  arrange(desc(tf_idf)) %>% 
+  ggplot(aes(tf_idf, fct_reorder(word, tf_idf), fill = Region)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~Region, ncol = 4, scales = "free") +
+  labs(x = "tf-idf", y = NULL)
+
+# UPDATE: Why are they not in order by value?
+
+```
+
+In Heart of Texas and Golden Crescent, CIS is Communities in Schools.
+
+# N-Grams
+
+## Bigrams
+
+Examining pairs of two consecutive words, often called "bigrams"
+
+```{r}
+
+# Bigrams
+
+bigrams <- pdf.text %>%
+  unnest_tokens(bigram, Text, token = "ngrams", n = 2) %>%
+  filter(!is.na(bigram)) 
+
+bigrams_separated <- bigrams %>%
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+bigrams_filtered <- bigrams_separated %>%
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word) %>%
+  mutate(word1 = gsub(x = word1, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = ""),
+         word2 = gsub(x = word2, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = ""))
+
+bigrams_filtered <- bigrams_filtered %>%
+  mutate(word1 = na_if(bigrams_filtered$word1, ""),
+         word2 = na_if(bigrams_filtered$word2, "")) %>% 
+  na.omit 
+  
+  
+bigram_counts <- bigrams_filtered %>% 
+  count(word1, word2, sort = TRUE)
+
+bigrams_united <- bigrams_filtered %>%
+  unite(bigram, word1, word2, sep = " ")
+
+
+# bigrams.youth <- bigrams_filtered %>%
+#   filter(word2 == "youth") %>%
+#   count(Region, word1, sort = TRUE)
+
+bigrams.youth.all <- bigrams_filtered %>%
+  filter(word2 == "youth") %>%
+  count(word1, sort = TRUE)
+
+kable(bigrams.youth.all %>% head(., 10),
+  caption = "10 most common words preceding youth for all LWBs")
+
+bigrams.youth <- bigrams_filtered %>%
+  group_by(Region) %>% 
+  filter(word2 == "youth") %>%
+  count(word1, sort = TRUE)
+
+# foster, opportunity, disconnected, homeless, disabled
+# How do we capture out of school youth?
+
+```
+
+I think "school youth" comes from the phrases: "in school youth" and
+"out of school youth".
+
+TF-IDF for Bigrams
+
+```{r}
+
+bigram_tf_idf <- bigrams_united %>%
+  count(Region, bigram) %>%
+  bind_tf_idf(bigram, Region, n) %>%
+  arrange(desc(tf_idf))
+
+
+```
+
+```{r fig.height=24, fig.width=12}
+
+bigram_tf_idf %>%
+  group_by(Region) %>%
+  slice_max(tf_idf, n = 15) %>%
+  ungroup() %>%
+  ggplot(aes(tf_idf, fct_reorder(bigram, tf_idf), fill = Region)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~Region, ncol = 4, scales = "free") +
+  labs(x = "tf-idf", y = NULL)
+
+```
+
+Opportunity Youth made Capital Area's top 15. East Texas evangelical
+language is interesting. West Central Texas mentions youth success.
+
+## Trigrams
+
+This looks at groups of three words instead of pairs. I'm specifically interested in "out of school."
+
+```{r Trigrams, include=FALSE}
+
+# This looks at groups of three words instead of pairs
+trigrams.stop <- pdf.text %>%
+  unnest_tokens(trigram, Text, token = "ngrams", n = 3) %>%
+  filter(!is.na(trigram)) %>%
+  separate(trigram, c("word1", "word2", "word3"), sep = " ") %>%
+  filter(!word1 %in% stop_words$word,
+         !word2 %in% stop_words$word,
+         !word3 %in% stop_words$word) %>%
+  mutate(word1 = gsub(x = word1, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = ""),
+         word2 = gsub(x = word2, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = ""),
+         word3 = gsub(x = word3, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = ""))  
+#  count(word1, word2, word3, sort = TRUE)
+
+trigrams_filtered <- trigrams.stop %>%
+  mutate(word1 = na_if(trigrams.stop$word1, ""),
+         word2 = na_if(trigrams.stop$word2, ""),
+         word3 = na_if(trigrams.stop$word3, "")) %>% 
+  na.omit
+
+trigrams_united <- trigrams_filtered %>% 
+  unite(trigram, word1, word2, word3, sep = " ")
+
+trigram_tf_idf <- trigrams_united %>%
+  count(Region, trigram) %>%
+  bind_tf_idf(trigram, Region, n) %>%
+  arrange(desc(tf_idf))
+
+```
+
+```{r Trigrams Image, eval=FALSE, fig.height=24, fig.width=12, include=FALSE}
+
+trigram_tf_idf %>%
+  group_by(Region) %>%
+  slice_max(tf_idf, n = 10) %>%
+  ungroup() %>%
+  ggplot(aes(tf_idf, fct_reorder(trigram, tf_idf), fill = Region)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~Region, ncol = 4, scales = "free") +
+  labs(x = "tf-idf", y = NULL)
+
+```
+
+```{r eval=FALSE, include=FALSE}
+
+trigram_count <- trigrams_filtered %>% 
+  unite(trigram, word1, word2, word3, sep = " ") %>% 
+  count(trigram, sort = TRUE) %>% 
+  mutate(rank = row_number())
+
+trigram.youth <- trigrams_filtered %>% 
+    filter(word3 == "youth") %>% 
+    unite(trigram, word1, word2, word3, sep = " ") %>% 
+    count(trigram, sort = TRUE) 
+
+trigram.youth <- trigrams_filtered %>% 
+    filter(word3 == "youth") %>% 
+    unite(trigram, word1, word2, word3, sep = " ") %>% 
+    count(trigram, Region, sort = TRUE)
+  
+  
+#   mutate(OY = str_count(pdf.text$Text, "opportunity youth") +
+#            str_count(pdf.text$Text, "OY"),
+#          DY = str_count(pdf.text$Text, "disconnected youth") +
+#            str_count(pdf.text$Text, "DY"),
+#          OSY = str_count(pdf.text$Text, "out of school youth") +
+#            str_count(pdf.text$Text, "OSY")) %>% 
+#   group_by(Region) %>% 
+#   summarize(OY = sum(OY),
+#             DY = sum(DY),
+#             OSY = sum(OSY)) %>% 
+#   mutate("Total Mentions" = OY + DY + OSY) %>% 
+#   arrange(desc(`Total Mentions`))
+# 
+# kable(phrases %>% filter(phrases$`Total Mentions` > 0),
+#   caption = "Any Related Opportunity Youth Mentions")
+
+
+```
+I'm going to try it with stop words included because "out of school" is tricky otherwise (both "out" and "of" are stop words.)
+
+```{r Trigrams with stopwords, echo=FALSE}
+
+# This looks at groups of three words instead of pairs
+trigrams <- pdf.text %>%
+  unnest_tokens(trigram, Text, token = "ngrams", n = 3) %>%
+  filter(!is.na(trigram)) %>%
+  count(trigram, sort = TRUE)
+
+trigrams.region <- pdf.text %>%
+  unnest_tokens(trigram, Text, token = "ngrams", n = 3) %>%
+  filter(!is.na(trigram)) %>%
+  count(trigram, Region, sort = TRUE)
+
+
+kable(trigrams.region %>% filter(trigrams.region$trigram == "out of school"),
+   caption = "Out of School Mentions")
+```
+Every region mentioned "out of school" at least once.
+
+```{r}
+
+kable(trigrams %>% filter(str_detect(trigrams$trigram, 'youth')) %>% head(., 15),
+   caption = "Youth Mentions with Stop Words Included")
+
+
+trigram_count <- trigrams_filtered %>% 
+  unite(trigram, word1, word2, word3, sep = " ") %>% 
+  count(trigram, sort = TRUE) %>% 
+  mutate(rank = row_number())
+
+kable(trigram_count %>% filter(str_detect(trigram_count$trigram, 'youth')) %>% head(., 15),
+   caption = "Youth Mentions without Stop Words")
+
+```
+I think "post exit youth" and also "former foster youth" are interesting. Is disability a risk factor for OY?
+
+# Youth Sentiment
+
+Note: "Disconnected" wasn't in the sentiment dataset I used, so I
+manually added it.
+
+```{r Youth Sentiment}
+	
+# add disconnected
+sentiment.afinn <- get_sentiments("afinn") %>% 
+  rbind(., c("disconnected", -2)) %>% 
+  mutate(value = as.numeric(value))
+
+youth_words <- bigrams_separated %>%
+  filter(word2 == "youth") %>%
+  inner_join(sentiment.afinn, by = c(word1 = "word")) %>%
+  count(word1, value, sort = TRUE) %>%
+  mutate(contribution = n * value) 
+
+youth_words %>%
+  #arrange(desc(abs(contribution))) %>%
+  filter(contribution > 10 | contribution < 0) %>% 
+  #head(30) %>%
+  mutate(word1 = reorder(word1, contribution)) %>%
+  ggplot(aes(n * value, word1, fill = n * value > 0)) +
+  geom_col(show.legend = FALSE) +
+  labs(x = "Contribution (Sentiment value * number of occurrences)",
+       y = "Words preceding \"youth\"",
+       title = "Contribution value of words preceding \"youth\"",
+       subtitle = "for all Texas LWBs combined")
+
+```
+
+
+```{r rural correlations, eval=FALSE, include=FALSE}
+
+#Split a string into columns
+#separate_wider_delim() 
+
+
+# IDEA: Rural mentions on x axis, youth mentions on y (frequency instead of counts?)
+# 
+# year_term_counts %>%
+#   filter(term %in% c("god", "america", "foreign", "union", "constitution", "freedom")) %>%
+#   ggplot(aes(year, count / year_total)) +
+#   geom_point() +
+#   geom_smooth() +
+#   facet_wrap(~ term, scales = "free_y") +
+#   scale_y_continuous(labels = scales::percent_format()) +
+#   labs(y = "% frequency of word in inaugural address")
+
+```
+
+
+```{r Web Mining, eval=FALSE, include=FALSE}
+
+# The web mining from the book I was using is now outdated. It would be interesting to look up the most recent news articles relating to opportunity youth and analyze them
+
+# tm.plugin.webmining connects to online feeds to retrieve news articles based on a keyword
+# 
+# install.packages('tm.plugin.webmining')
+# library(tm.plugin.webmining)
+# library(purrr)
+
+# allows us to retrieve the 20 most recent articles related to the Microsoft (MSFT) stock
+
+# WebCorpus(GoogleFinanceSource("NASDAQ:MSFT"))
+```
+
+# Word Associations
+
+This section follows this tutorial : https://www.red-gate.com/simple-talk/databases/sql-server/bi-sql-server/text-mining-and-sentiment-analysis-with-r/
+
+```{r}
+
+#install.packages('tm')
+library(tm)
+
+#install.packages('tidyr')
+#library(tidyr)
+
+#First change tidy word count into Document Term Matrix
+dtm <- word.count %>% 
+  cast_dtm(Region, word, n)
+
+assocs.list <- findAssocs(dtm, terms = c("youth", "young"), corlimit = 0.65)
+
+assocs.youth <- bind_rows(list(assocs.list[["youth"]])) %>% 
+  pivot_longer(cols = everything(),
+               cols_vary = "slowest", 
+               names_to = "youth", 
+               values_to = "correlation")
+
+assocs.young <- bind_rows(list(assocs.list[["young"]])) %>% 
+  pivot_longer(cols = everything(),
+               cols_vary = "slowest", 
+               names_to = "young", 
+               values_to = "correlation")
+
+kable(assocs.youth %>% head(., 25), caption = "Top 25 Words Associcated with Youth")
+
+kable(assocs.young %>% head(., 25), caption = "Top 25 Words Associcated with Young")
+
+```
+
+91% of the time the word reskill is mentioned, it's with the word young.
+
+# Topic Modeling
+
+"Latent Dirichlet allocation (LDA) is a particularly popular method for fitting a topic model. It treats each document as a mixture of topics, and each topic as a mixture of words."
+
+```{r}
+
+#install.packages('topicmodels')
+library(topicmodels)
+
+lda <- LDA(dtm, k = 2, control = list(seed = 1234))
+
+# The tidytext package provides this method for extracting the per-topic-per-word probabilities, called β (“beta”), from the model.
+topics <- tidy(lda, matrix = "beta")
+
+top_terms <- topics %>% 
+    group_by(topic) %>%
+  slice_max(beta, n = 10) %>% 
+  ungroup() %>%
+  arrange(topic, -beta)
+
+top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered()
+
+beta_wide <- topics %>%
+  mutate(topic = paste0("topic", topic)) %>%
+  pivot_wider(names_from = topic, values_from = beta) %>% 
+  filter(topic1 > .005 | topic2 > .005) %>%
+  mutate(log_ratio = log2(topic2 / topic1)) 
+
+beta_wide %>%
+  mutate(term = reorder(term, log_ratio)) %>% 
+  ggplot(aes(log_ratio, term)) +
+  geom_col() +
+  scale_y_reordered() +
+  labs(x = "Log2 ratio of beta in topic 2 / topic 1",
+       title = "Words with the greatest difference in β between topic 2 and topic 1",
+       subtitle = "for all Texas LWBs combined")
+ 
+
+```
+Idea: View the Board Oversight Capacity score card for your Board. Every year, the Texas Workforce Commission (TWC) assesses how well each Board uses local funds and provides local workforce services. 
