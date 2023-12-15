@@ -49,10 +49,11 @@ narrative.raw <- read_xlsx("QD_TWC_Report_3Q.xlsx", sheet = 3)
 
 # We need all the text we're interested in a single collumn, so the below moves the Activity Description and Measurable Outcomes all into one column called Text
 narrative.long <- narrative.raw %>% 
-  pivot_longer(cols = c('Activity Description:', 'Measurable Outcome(s)'), names_to = "Description", values_to = "Text")
+  pivot_longer(cols = c('Activity Description:', 'Measurable Outcome(s)'), names_to = "Description", values_to = "Text") %>% 
+  rename(Region = Board)
 
 # Next we take all the Text we're interested in and unnest it to make it tidy, which means we'll have one word per row
-narrative.tidy <- narrative.long %>% 
+tidy.text <- narrative.long %>% 
   unnest_tokens(word, Text)
 
 ```
@@ -74,7 +75,7 @@ stop_words <- stop_words %>%
 # words <- narrative.text %>%
 #   mutate(word = gsub(x = word, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = ""))
 
-narrative.nostops <- narrative.tidy %>% 
+words <- tidy.text %>% 
   # remove any word that is in our stop word list
   anti_join(stop_words)
 
@@ -86,7 +87,7 @@ I then performed a word count.
 ```{r echo=FALSE}
 
 # This counts the number of times a word is used, sorts it largest to smallest, and adds a rank number
-word.count.total <- narrative.nostops %>% 
+word.count.total <- words %>% 
   count(word, sort = TRUE) %>% 
   mutate(rank = row_number())
 
@@ -110,27 +111,16 @@ word.count.total %>%
 
 ```{r echo=FALSE}
 
-# Now we'll do the same, but for each Board region
-word.count.region <- narrative.nostops %>% 
-  group_by(Board) %>% 
+# Now we'll do the same, but for each region
+word.count.region <- words %>% 
+  group_by(Region) %>% 
   count(word, sort = TRUE) %>% 
-  pivot_wider(names_from = Board, values_from = n) %>% 
+  pivot_wider(names_from = Region, values_from = n) %>% 
   full_join(., word.count.total) %>% 
   arrange(-n)
 
 # table
 kable(word.count.region %>% head(., 25), caption = "Most Frequently Used Words by Region")
-
-
-word.count.region.25.long <- word.count.region.25 %>% 
-  pivot_longer(cols = Cameron:`Brazos Valley`, names_to = "Region", values_to = "count")
-
-# I don't think this is helpful, but it sure is pretty
-word.count.region.25.long %>% 
-  mutate(word = reorder(word, n)) %>% 
-  ggplot(aes(x = count, y = word, fill = Region)) +
-  geom_col()
-
 
 ```
 
@@ -228,21 +218,23 @@ it. In these texts I think it's mostly a neutral term.
 sentiment.bing <- get_sentiments("bing") %>% 
   filter(word != "work")
   
+# , index = page %/% 5, removed
 sentiment.region <- words %>%
   inner_join(sentiment.bing) %>%
-  count(Region, index = page %/% 5, sentiment) %>%
+  count(Region, sentiment) %>%
   pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>%
   mutate(sentiment = positive - negative)
 
 ```
 
+Recolor this graph so that negative numbers are a different color.
+
 ```{r fig.height=12}
 
-ggplot(sentiment.region, aes(index, sentiment, fill = Region)) +
+ggplot(sentiment.region, aes(Region, sentiment, fill = sentiment)) +
   geom_col(show.legend = FALSE) +
   facet_wrap(~Region, ncol = 4, scales = "free_x") +
-  labs(title = "Sentiment of Strategic Plans by Region",
-       subtitle = "by every 5 pages of narrative")
+  labs(title = "Sentiment of Strategic Plans by Region")
 
 ```
 
@@ -303,7 +295,7 @@ Examining pairs of two consecutive words, often called "bigrams"
 
 # Bigrams
 
-bigrams <- pdf.text %>%
+bigrams <- narrative.long %>%
   unnest_tokens(bigram, Text, token = "ngrams", n = 2) %>%
   filter(!is.na(bigram)) 
 
@@ -312,46 +304,54 @@ bigrams_separated <- bigrams %>%
 
 bigrams_filtered <- bigrams_separated %>%
   filter(!word1 %in% stop_words$word) %>%
-  filter(!word2 %in% stop_words$word) %>%
-  mutate(word1 = gsub(x = word1, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = ""),
-         word2 = gsub(x = word2, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = ""))
+  filter(!word2 %in% stop_words$word) 
+# 
+# %>%
+#   mutate(word1 = gsub(x = word1, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = ""),
+#          word2 = gsub(x = word2, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = ""))
 
 bigrams_filtered <- bigrams_filtered %>%
   mutate(word1 = na_if(bigrams_filtered$word1, ""),
-         word2 = na_if(bigrams_filtered$word2, "")) %>% 
-  na.omit 
-  
+         word2 = na_if(bigrams_filtered$word2, "")) 
+
+# %>%   na.omit 
   
 bigram_counts <- bigrams_filtered %>% 
   count(word1, word2, sort = TRUE)
 
+kable(bigram_counts %>% head(., 10),
+      caption = "10 most common bigrams overall")
+      
 bigrams_united <- bigrams_filtered %>%
   unite(bigram, word1, word2, sep = " ")
 
+bigrams_region <- bigrams_united %>% 
+        select(Region, bigram) %>% 
+        group_by(Region) %>%
+        count(bigram, sort = TRUE) %>% 
+        pivot_wider(names_from = Region, values_from = n) %>% 
+        head(., 10)
+kable(bigrams_region)
 
 # bigrams.youth <- bigrams_filtered %>%
 #   filter(word2 == "youth") %>%
 #   count(Region, word1, sort = TRUE)
 
-bigrams.youth.all <- bigrams_filtered %>%
-  filter(word2 == "youth") %>%
-  count(word1, sort = TRUE)
+# bigrams.youth.all <- bigrams_filtered %>%
+#   filter(word2 == "youth") %>%
+#   count(word1, sort = TRUE)
+# 
+# kable(bigrams.youth.all %>% head(., 10),
+#   caption = "10 most common words preceding youth for all LWBs")
+# 
+# bigrams.youth <- bigrams_filtered %>%
+#   group_by(Region) %>% 
+#   filter(word2 == "youth") %>%
+#   count(word1, sort = TRUE)
 
-kable(bigrams.youth.all %>% head(., 10),
-  caption = "10 most common words preceding youth for all LWBs")
-
-bigrams.youth <- bigrams_filtered %>%
-  group_by(Region) %>% 
-  filter(word2 == "youth") %>%
-  count(word1, sort = TRUE)
-
-# foster, opportunity, disconnected, homeless, disabled
-# How do we capture out of school youth?
 
 ```
-
-I think "school youth" comes from the phrases: "in school youth" and
-"out of school youth".
+Re-do the last chart to show the top ten bigrams by region instead.
 
 TF-IDF for Bigrams
 
@@ -365,7 +365,7 @@ bigram_tf_idf <- bigrams_united %>%
 
 ```
 
-```{r fig.height=24, fig.width=12}
+```{r}
 
 bigram_tf_idf %>%
   group_by(Region) %>%
@@ -378,17 +378,12 @@ bigram_tf_idf %>%
 
 ```
 
-Opportunity Youth made Capital Area's top 15. East Texas evangelical
-language is interesting. West Central Texas mentions youth success.
-
 ## Trigrams
-
-This looks at groups of three words instead of pairs. I'm specifically interested in "out of school."
 
 ```{r Trigrams, include=FALSE}
 
 # This looks at groups of three words instead of pairs
-trigrams.stop <- pdf.text %>%
+trigrams.stop <- narrative.long %>%
   unnest_tokens(trigram, Text, token = "ngrams", n = 3) %>%
   filter(!is.na(trigram)) %>%
   separate(trigram, c("word1", "word2", "word3"), sep = " ") %>%
@@ -447,12 +442,12 @@ trigram.youth <- trigrams_filtered %>%
     count(trigram, Region, sort = TRUE)
   
   
-#   mutate(OY = str_count(pdf.text$Text, "opportunity youth") +
-#            str_count(pdf.text$Text, "OY"),
-#          DY = str_count(pdf.text$Text, "disconnected youth") +
-#            str_count(pdf.text$Text, "DY"),
-#          OSY = str_count(pdf.text$Text, "out of school youth") +
-#            str_count(pdf.text$Text, "OSY")) %>% 
+#   mutate(OY = str_count(narrative.long$Text, "opportunity youth") +
+#            str_count(narrative.long$Text, "OY"),
+#          DY = str_count(narrative.long$Text, "disconnected youth") +
+#            str_count(narrative.long$Text, "DY"),
+#          OSY = str_count(narrative.long$Text, "out of school youth") +
+#            str_count(narrative.long$Text, "OSY")) %>% 
 #   group_by(Region) %>% 
 #   summarize(OY = sum(OY),
 #             DY = sum(DY),
@@ -470,12 +465,12 @@ I'm going to try it with stop words included because "out of school" is tricky o
 ```{r Trigrams with stopwords, echo=FALSE}
 
 # This looks at groups of three words instead of pairs
-trigrams <- pdf.text %>%
+trigrams <- narrative.long %>%
   unnest_tokens(trigram, Text, token = "ngrams", n = 3) %>%
   filter(!is.na(trigram)) %>%
   count(trigram, sort = TRUE)
 
-trigrams.region <- pdf.text %>%
+trigrams.region <- narrative.long %>%
   unnest_tokens(trigram, Text, token = "ngrams", n = 3) %>%
   filter(!is.na(trigram)) %>%
   count(trigram, Region, sort = TRUE)
