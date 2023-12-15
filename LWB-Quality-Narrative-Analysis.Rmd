@@ -36,6 +36,8 @@ Jacob found the excel sheet. Find out where it was sourced from and put that inf
 The TidyText R package is being utilized for this analysis:
 <https://www.tidytextmining.com/tidytext>
 
+The code for this project is available to the public on github: <https://github.com/amyshuff/LWB-Quality-Narrative-Analysis>
+
 ```{r Data Import, include=FALSE}
 
 # Save the third tab of the xlsx excel file
