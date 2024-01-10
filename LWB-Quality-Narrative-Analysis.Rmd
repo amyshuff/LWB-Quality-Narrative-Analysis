@@ -38,6 +38,14 @@ The TidyText R package is being utilized for this analysis:
 
 The code for this project is available to the public on github: <https://github.com/amyshuff/LWB-Quality-Narrative-Analysis>
 
+
+Notes from Kaitlyn:
+Look only at Texas Rising Star Activity Category. Remove the words Texas Rising Star from word counts. Group by Board. Analyze Activity Description to see what most common categories of spending are. Kaitlyn will provide key words to do specific counts on by 1/10/24.
+
+Due by the end of the month. We might be getting Q4 data to upload by then. 
+
+
+
 ```{r Data Import, include=FALSE}
 
 # Save the third tab of the xlsx excel file
