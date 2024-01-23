@@ -29,21 +29,41 @@ library(textdata)
 
 ```
 
+Notes from Kaitlyn:
+Look only at Texas Rising Star Activity Category. Remove the words Texas Rising Star from word counts. Group by Board. Analyze Activity Description to see what most common categories of spending are. Look at differences across workforce boards.
+
+Due by the end of the month. We might be getting Q4 data to upload by then. 
+
+Key words to do specific counts on:
+Phrase(s)	- Notes
+Child Development Associate (CDA)	- key credential
+Early Childhood Education (ECE)	
+Texas Rising Star (TRS)	- QRIS system
+Early learning	
+star level	- Related to TRS
+Entry level	- RElated to TRS
+professional development	
+child care	
+early childhood	
+child development	
+
+
 # Methodology
 
-Jacob found the excel sheet. Find out where it was sourced from and put that information here.
+This report will be analyzing Texas Workforce Commission (TWC) Boards quarterly reports for Child Care Quality (CCQ) Funds.
+
+The original report can be found on the TWC website for Child Care Data, Reports & Plans:
+<https://www.twc.texas.gov/programs/child-care/data-reports-plans>
+
+Under the dropdown titled "Local Board Child Care Quality (CCQ) Funds: Annual Plans and Quarterly Expenditure Reports", we downloaded the FY23 CCQ Quarterly Online Report:
+<https://www.twc.texas.gov/sites/default/files/ccel/docs/fy23-ccq-quarterly-online-report-updated-twc.xlsx>
+
+Specifically, we'll be analyzing the third tab, titled "YTD Narratives," focusing on the activity descriptions and measurable outcomes for the Texas Rising Star Activity Category.
 
 The TidyText R package is being utilized for this analysis:
 <https://www.tidytextmining.com/tidytext>
 
 The code for this project is available to the public on github: <https://github.com/amyshuff/LWB-Quality-Narrative-Analysis>
-
-
-Notes from Kaitlyn:
-Look only at Texas Rising Star Activity Category. Remove the words Texas Rising Star from word counts. Group by Board. Analyze Activity Description to see what most common categories of spending are. Kaitlyn will provide key words to do specific counts on by 1/10/24.
-
-Due by the end of the month. We might be getting Q4 data to upload by then. 
-
 
 
 ```{r Data Import, include=FALSE}
@@ -57,10 +77,13 @@ narrative.raw <- read_xlsx("QD_TWC_Report_3Q.xlsx", sheet = 3)
 
 ```{r Unnest words tidytext, include=FALSE}
 
-# We need all the text we're interested in a single collumn, so the below moves the Activity Description and Measurable Outcomes all into one column called Text
+# We need all the text we're interested in a single column, so the below moves the Activity Description and Measurable Outcomes all into one column called Text
 narrative.long <- narrative.raw %>% 
   pivot_longer(cols = c('Activity Description:', 'Measurable Outcome(s)'), names_to = "Description", values_to = "Text") %>% 
-  rename(Region = Board)
+  rename(Region = Board) %>% 
+  filter(`Activity Category` == "TRS/QRIS (except PD)"|
+           `Activity Category` == "Texas Rising Star/QRIS (except PD)"|
+           `Activity Category` == "Texas Rising Star/Quality Improvement")
 
 # Next we take all the Text we're interested in and unnest it to make it tidy, which means we'll have one word per row
 tidy.text <- narrative.long %>% 
@@ -70,7 +93,7 @@ tidy.text <- narrative.long %>%
 
 # Word Count
 
-Stop words (common words such as "it", "the", "to", etc.) were removed. Do we want numbers and punctuation taken out as well?
+Stop words (common words such as "it", "the", "to", etc.) were removed along with numbers and punctuation.
 
 ```{r, Stop Words, include=FALSE}
 
@@ -80,61 +103,160 @@ data(stop_words)
 # Here I filter to only one set of stop words. This was the same lexicon I used for the other strategic plans analysis because it left in the words young and work
 stop_words <- stop_words %>% 
   filter(lexicon == "SMART")
-
-# This would be to remove numbers and punctuation, if wanted
-# words <- narrative.text %>%
-#   mutate(word = gsub(x = word, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = ""))
+  
 
 words <- tidy.text %>% 
+  # Remove numbers and punctuation
+    mutate(word = gsub(x = word, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = "")) %>% 
+  # Rename blanks as NA to easily remove
+  mutate(word = ifelse(word == "", NA, word)) %>% 
   # remove any word that is in our stop word list
   anti_join(stop_words)
 
-
 ```
 
-I then performed a word count.
+For this word count, we also removed TRS, Texas Rising Star, since it is assumed to be common.
+
+Let's start by seeing how much text we have to work with for each region.
+
+```{r echo=FALSE}
+
+word.count.region <- words %>% 
+  group_by(Region) %>% 
+  count(word, sort = TRUE) %>% 
+  na.omit %>% 
+  filter(!word == "trs",
+         !word == "texas",
+         !word == "rising",
+         !word == "star")
+
+kable(word.count.region %>% 
+        summarise('Total Words' = sum(n, na.rm = TRUE)))
+
+
+```
+We can see here that there is a large discrepancy in the amount of text for each region. Some only have a single sentence of less than ten words, while others have over a thousands words of text.
 
 ```{r echo=FALSE}
 
 # This counts the number of times a word is used, sorts it largest to smallest, and adds a rank number
 word.count.total <- words %>% 
   count(word, sort = TRUE) %>% 
-  mutate(rank = row_number())
+  na.omit %>% 
+  filter(!word == "trs",
+         !word == "texas",
+         !word == "rising",
+         !word == "star") %>% 
+  mutate(rank = row_number()) 
 
 # This creates the table
-kable(word.count.total %>% head(., 25),
-  caption = "25 Most Frequently Used Words")
+kable(word.count.total %>% head(., 10),
+  caption = "10 Most Frequently Used Words for all Regions Combined")
 
 # This creates the chart
 word.count.total %>% 
-  head(., 25) %>% 
+  head(., 10) %>% 
   mutate(word = reorder(word, n)) %>%
-  ggplot(aes(n, word)) +
-  geom_col() +
+  ggplot(aes(n, word, fill=n)) +
+  geom_col(show.legend = FALSE) +
   labs(y = NULL) +
   labs(title = "Most Frequently Used Words",
-       subtitle = "for all Texas LWBs combined")
+       subtitle = "for all Regions Combined") +
+  theme(panel.background = element_blank())
   
 
 ```
 
 
-```{r echo=FALSE}
+```{r word count region, echo=FALSE, fig.height=16, fig.width=10}
 
 # Now we'll do the same, but for each region
 word.count.region <- words %>% 
   group_by(Region) %>% 
   count(word, sort = TRUE) %>% 
-  pivot_wider(names_from = Region, values_from = n) %>% 
-  full_join(., word.count.total) %>% 
-  arrange(-n)
+  na.omit %>% 
+  filter(!word == "trs",
+         !word == "texas",
+         !word == "rising",
+         !word == "star") %>% 
+  slice_max(n, n = 3)
+
+
+  # arrange(-n) %>% 
+  # mutate(rank = row_number())
+
+
+# This has the words arranged alphabetically
+# ggplot(word.count.region, aes(x = n, y = word, fill = n)) +
+#   geom_bar(stat = "identity", show.legend = FALSE)
+
+# This has them arranged by Region alphabetically
+ggplot(word.count.region, aes(x = n, y = word, fill = n)) +
+  geom_bar(stat = "identity", show.legend = FALSE)+
+  facet_wrap(~Region, ncol = 4, scales = "free_y") +
+  labs(title = "Most Frequently Used Words",
+       subtitle = "by Region")
+
+# Why can't I get them ordered by n per Region?
+# ggplot(word.count.region, aes(x = n, y = fct_reorder(word, n), fill = n)) +
+#   geom_bar(stat = "identity", show.legend = FALSE) +
+#   facet_wrap(~Region, ncol = 4, scales = "free_y") +
+#   labs(title = "Most Frequently Used Words",
+#        subtitle = "by Region")
+# 
+# ggplot(word.count.region, aes(x = n, y = reorder(word, n), fill = n)) +
+#   geom_bar(stat = "identity", show.legend = FALSE) +
+#   facet_wrap(~Region, ncol = 4, scales = "free_y") +
+#   labs(title = "Most Frequently Used Words",
+#        subtitle = "by Region")
+# 
+# 
+# 
+# ggplot(word.count.region, aes(x = n, y = reorder(word, n))) +
+#   geom_col(show.legend = FALSE) +
+#   facet_wrap(~Region, ncol = 4, scales = "free_y") +
+#   labs(title = "Most Frequently Used Words",
+#        subtitle = "by Region")
+# 
+# ggplot(word.count.region, aes(x = n, y = fct_reorder(word, n), fill = n)) +
+#   geom_col(show.legend = FALSE) +
+#   facet_wrap(~Region, ncol = 4, scales = "free_y") +
+#   labs(title = "Most Frequently Used Words",
+#        subtitle = "by Region")
+
+  #ggplot(aes(tf_idf, fct_reorder(word, tf_idf), fill = Region))
+
+# 
+# word.count.region %>% 
+#   mutate(word = reorder(word, n)) %>%
+#   ggplot(aes(n, word, fill=n)) +
+#   geom_col(show.legend = FALSE) +
+#   labs(y = NULL) +
+#   labs(title = "Most Frequently Used Words",
+#        subtitle = "for all Texas LWBs combined") +
+#   theme(panel.background = element_blank())
+
+
 
 # table
-kable(word.count.region %>% head(., 25), caption = "Most Frequently Used Words by Region")
+kable(word.count.region, caption = "Most Frequently Used Words by Region")
 
 ```
 
 ```{r frequency}
+
+# Key words to do specific counts on:
+# Phrase(s)	- Notes
+# Child Development Associate (CDA)	- key credential
+# Early Childhood Education (ECE)	
+# Texas Rising Star (TRS)	- QRIS system
+# Early learning	
+# star level	- Related to TRS
+# Entry level	- RElated to TRS
+# professional development	
+# child care	
+# early childhood	
+# child development	
 
 frequency <- words %>% 
   count(Region, word) %>% 
@@ -147,13 +269,16 @@ frequency <- words %>%
  
 
 frequency %>% 
-  filter(word == "youth") %>% 
+  filter(word == "trs" |
+         word == "texas" |
+         word == "rising" |
+         word == "star") %>% 
   ungroup() %>% 
   mutate(Region = reorder(Region, proportion)) %>%
   mutate(rank = row_number()) %>% 
   ggplot(aes(x = proportion, y = Region)) +
   geom_col() +
-  labs(title = "Youth Mentions by Region",
+  labs(title = "TRS Mentions by Region",
        subtitle = "as a proportion of all words used")
 
 
@@ -222,7 +347,7 @@ kable(sentiment.count %>% head(., 10),
 Because "work" is seen as positive in this sentiment dataset, I removed
 it. In these texts I think it's mostly a neutral term.
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 
 # Remove work
 sentiment.bing <- get_sentiments("bing") %>% 
@@ -239,7 +364,7 @@ sentiment.region <- words %>%
 
 Recolor this graph so that negative numbers are a different color.
 
-```{r fig.height=12}
+```{r eval=FALSE, fig.height=12, include=FALSE}
 
 ggplot(sentiment.region, aes(Region, sentiment, fill = sentiment)) +
   geom_col(show.legend = FALSE) +
@@ -262,38 +387,39 @@ characteristic words for each region.
 
 word.count <- words %>% 
   # Remove numbers and unwanted punctuation
-  mutate(word = gsub(x = word, pattern = "[0-9]", replacement = "")) %>%
+  mutate(word = gsub(x = word, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = "")) %>%
   mutate(word = gsub(x = word, pattern = ",,", replacement = "")) %>%
-  count(Region, word, sort = TRUE)
+  count(Region, word, sort = TRUE) %>% 
+  # Rename blanks as NA to easily remove
+  mutate(word = ifelse(word == "", NA, word)) %>% 
+  na.omit
 
-# This removes all punctuation:
-# mutate(mydata, text = gsub(x = text, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = "")) 
-
-# gsub(x = mydata$text, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = "")
 
 word.tf_idf <- word.count %>% 
+  ungroup() %>% 
   bind_tf_idf(word, Region, n) %>%
+  mutate(Region = as.factor(Region)) %>% 
   arrange(desc(tf_idf))
 
 ```
 
-```{r fig.height=24, fig.width=12}
+These have been limited to the top two terms that are unique to each region because some regions only had seven words to contribute. Additional words are listed if they have the same tf-idf value.
+
+```{r New TF-IDF, fig.height=8, fig.width=10}
+
+library(forcats)
 
 word.tf_idf %>%
+  ungroup() %>% 
   group_by(Region) %>%
-  slice_max(tf_idf, n = 15) %>%
-  ungroup() %>%
-  arrange(desc(tf_idf)) %>% 
+  slice_max(tf_idf, n = 2) %>%
   ggplot(aes(tf_idf, fct_reorder(word, tf_idf), fill = Region)) +
   geom_col(show.legend = FALSE) +
   facet_wrap(~Region, ncol = 4, scales = "free") +
-  labs(x = "tf-idf", y = NULL)
-
-# UPDATE: Why are they not in order by value?
+  labs(x = "tf-idf", y = NULL) +
+  theme_minimal()
 
 ```
-
-In Heart of Texas and Golden Crescent, CIS is Communities in Schools.
 
 # N-Grams
 
@@ -580,7 +706,7 @@ youth_words %>%
 
 This section follows this tutorial : https://www.red-gate.com/simple-talk/databases/sql-server/bi-sql-server/text-mining-and-sentiment-analysis-with-r/
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 
 #install.packages('tm')
 library(tm)
@@ -618,7 +744,7 @@ kable(assocs.young %>% head(., 25), caption = "Top 25 Words Associcated with You
 
 "Latent Dirichlet allocation (LDA) is a particularly popular method for fitting a topic model. It treats each document as a mixture of topics, and each topic as a mixture of words."
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 
 #install.packages('topicmodels')
 library(topicmodels)
