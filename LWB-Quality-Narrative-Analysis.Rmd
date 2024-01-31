@@ -32,20 +32,40 @@ library(textdata)
 Notes from Kaitlyn:
 Look only at Texas Rising Star Activity Category. Remove the words Texas Rising Star from word counts. Group by Board. Analyze Activity Description to see what most common categories of spending are. Look at differences across workforce boards.
 
-Due by the end of the month. We might be getting Q4 data to upload by then. 
-
 Key words to do specific counts on:
+
 Phrase(s)	- Notes
-Child Development Associate (CDA)	- key credential
-Early Childhood Education (ECE)	
-Texas Rising Star (TRS)	- QRIS system
-Early learning	
-star level	- Related to TRS
-Entry level	- RElated to TRS
-professional development	
-child care	
-early childhood	
-child development	
+
+- Child Development Associate (CDA)	- key credential
+
+- Early Childhood Education (ECE)	
+
+- Texas Rising Star (TRS)	- QRIS system
+
+- Early learning	
+
+- star level	- Related to TRS
+
+- Entry level	- RElated to TRS
+
+- professional development	
+
+- child care	
+
+- early childhood	
+
+- child development	
+
+
+Next Steps: 
+
+- Look at other categories and how many reference TRS in the non-TRS categories
+
+- How and where are they investing
+
+- How many regions mention salary related words in the TRS category
+
+- Could be interesting to import budgets and see if there's a corrolation with descriptions
 
 
 # Methodology
@@ -121,17 +141,18 @@ Let's start by seeing how much text we have to work with for each region.
 
 ```{r echo=FALSE}
 
-word.count.region <- words %>% 
+word.total.region <- words %>% 
   group_by(Region) %>% 
   count(word, sort = TRUE) %>% 
   na.omit %>% 
   filter(!word == "trs",
          !word == "texas",
          !word == "rising",
-         !word == "star")
+         !word == "star") %>% 
+        summarise('Total Words' = sum(n, na.rm = TRUE)) %>% 
+        arrange(-`Total Words`)
 
-kable(word.count.region %>% 
-        summarise('Total Words' = sum(n, na.rm = TRUE)))
+kable(word.total.region)
 
 
 ```
@@ -179,12 +200,21 @@ word.count.region <- words %>%
          !word == "texas",
          !word == "rising",
          !word == "star") %>% 
-  slice_max(n, n = 3)
+  slice_max(n, n = 3) %>% 
+  arrange(-n) %>% 
+  ungroup() %>% 
+  mutate(rank = row_number())
 
 
-  # arrange(-n) %>% 
-  # mutate(rank = row_number())
+word.count.region$rank <- as.factor(word.count.region$rank)
+#word.count.region$word <- factor(word.count.region$word, levels = c(word.count.region$word)
 
+# View the structure of the data frame. I need word to be a factor so that it is ordered correctly in the next graphs.
+#str(word.count.region)
+
+
+  #mutate(word = reorder(word, rank))
+  
 
 # This has the words arranged alphabetically
 # ggplot(word.count.region, aes(x = n, y = word, fill = n)) +
@@ -227,7 +257,7 @@ ggplot(word.count.region, aes(x = n, y = word, fill = n)) +
   #ggplot(aes(tf_idf, fct_reorder(word, tf_idf), fill = Region))
 
 # 
-# word.count.region %>% 
+# word.count.region %>%
 #   mutate(word = reorder(word, n)) %>%
 #   ggplot(aes(n, word, fill=n)) +
 #   geom_col(show.legend = FALSE) +
@@ -239,7 +269,7 @@ ggplot(word.count.region, aes(x = n, y = word, fill = n)) +
 
 
 # table
-kable(word.count.region, caption = "Most Frequently Used Words by Region")
+# kable(word.count.region, caption = "Most Frequently Used Words by Region")
 
 ```
 
