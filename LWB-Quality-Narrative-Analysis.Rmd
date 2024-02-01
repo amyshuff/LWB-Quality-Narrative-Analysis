@@ -105,13 +105,23 @@ narrative.long <- narrative.raw %>%
            `Activity Category` == "Texas Rising Star/QRIS (except PD)"|
            `Activity Category` == "Texas Rising Star/Quality Improvement")
 
+# Redoing to include all Activity Categories
+narrative.long.total <- narrative.raw %>% 
+  pivot_longer(cols = c('Activity Description:', 'Measurable Outcome(s)'), names_to = "Description", values_to = "Text") %>% 
+  rename(Region = Board)
+
 # Next we take all the Text we're interested in and unnest it to make it tidy, which means we'll have one word per row
 tidy.text <- narrative.long %>% 
   unnest_tokens(word, Text)
 
+tidy.text.total <- narrative.long.total %>% 
+  unnest_tokens(word, Text)
+
 ```
 
-# Word Count
+# TRS Activity Category
+
+## Word Count
 
 Stop words (common words such as "it", "the", "to", etc.) were removed along with numbers and punctuation.
 
@@ -126,6 +136,14 @@ stop_words <- stop_words %>%
   
 
 words <- tidy.text %>% 
+  # Remove numbers and punctuation
+    mutate(word = gsub(x = word, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = "")) %>% 
+  # Rename blanks as NA to easily remove
+  mutate(word = ifelse(word == "", NA, word)) %>% 
+  # remove any word that is in our stop word list
+  anti_join(stop_words)
+
+words.total <- tidy.text.total %>% 
   # Remove numbers and punctuation
     mutate(word = gsub(x = word, pattern = "[0-9]+|[[:punct:]]|\\(.*\\)", replacement = "")) %>% 
   # Rename blanks as NA to easily remove
@@ -152,11 +170,11 @@ word.total.region <- words %>%
         summarise('Total Words' = sum(n, na.rm = TRUE)) %>% 
         arrange(-`Total Words`)
 
-kable(word.total.region)
+kable(word.total.region, caption = "Total Words in TRS Activity Category")
 
 
 ```
-We can see here that there is a large discrepancy in the amount of text for each region. Some only have a single sentence of less than ten words, while others have over a thousands words of text.
+We can see here that there is a large discrepancy in the amount of text for each region. Some only have a single sentence of less than ten words, while others have over a thousands words of text. Going forward, Concho Valley, Southeast, and Borderplex should have asterisks next to their names to remind us that we're analyzing extremely limited data.
 
 ```{r echo=FALSE}
 
@@ -181,12 +199,15 @@ word.count.total %>%
   ggplot(aes(n, word, fill=n)) +
   geom_col(show.legend = FALSE) +
   labs(y = NULL) +
-  labs(title = "Most Frequently Used Words",
+  labs(title = "Most Frequently Used Words in TRS Activity Category",
        subtitle = "for all Regions Combined") +
   theme(panel.background = element_blank())
   
 
 ```
+
+
+The below graph is supposed to show the top three words used for each region, but those that only use a few words will have more words listed, due to ties.
 
 
 ```{r word count region, echo=FALSE, fig.height=16, fig.width=10}
@@ -202,76 +223,40 @@ word.count.region <- words %>%
          !word == "star") %>% 
   slice_max(n, n = 3) %>% 
   arrange(-n) %>% 
-  ungroup() %>% 
-  mutate(rank = row_number())
+  mutate(rank = row_number()) %>% 
+  ungroup()
 
+# I need word to be a factor so that it is ordered correctly in the next graphs.
+#word.count.region$rank <- as.factor(word.count.region$rank)
+word.count.region$word <- factor(word.count.region$word, levels = sort(unique(word.count.region$word, fromLast = TRUE)))
 
-word.count.region$rank <- as.factor(word.count.region$rank)
-#word.count.region$word <- factor(word.count.region$word, levels = c(word.count.region$word)
+# View the structure of the data frame. 
+# str(word.count.region)
+# Word only has 69 levels and I think I need it to have 119
 
-# View the structure of the data frame. I need word to be a factor so that it is ordered correctly in the next graphs.
-#str(word.count.region)
-
-
-  #mutate(word = reorder(word, rank))
-  
-
-# This has the words arranged alphabetically
-# ggplot(word.count.region, aes(x = n, y = word, fill = n)) +
-#   geom_bar(stat = "identity", show.legend = FALSE)
 
 # This has them arranged by Region alphabetically
-ggplot(word.count.region, aes(x = n, y = word, fill = n)) +
-  geom_bar(stat = "identity", show.legend = FALSE)+
-  facet_wrap(~Region, ncol = 4, scales = "free_y") +
-  labs(title = "Most Frequently Used Words",
-       subtitle = "by Region")
+# ggplot(word.count.region, aes(x = n, y = word, fill = n)) +
+#   geom_bar(stat = "identity", show.legend = FALSE)+
+#   facet_wrap(~Region, ncol = 4, scales = "free_y") +
+#   labs(title = "Most Frequently Used Words",
+#        subtitle = "by Region")
 
 # Why can't I get them ordered by n per Region?
-# ggplot(word.count.region, aes(x = n, y = fct_reorder(word, n), fill = n)) +
-#   geom_bar(stat = "identity", show.legend = FALSE) +
-#   facet_wrap(~Region, ncol = 4, scales = "free_y") +
-#   labs(title = "Most Frequently Used Words",
-#        subtitle = "by Region")
-# 
-# ggplot(word.count.region, aes(x = n, y = reorder(word, n), fill = n)) +
-#   geom_bar(stat = "identity", show.legend = FALSE) +
-#   facet_wrap(~Region, ncol = 4, scales = "free_y") +
-#   labs(title = "Most Frequently Used Words",
-#        subtitle = "by Region")
-# 
-# 
-# 
-# ggplot(word.count.region, aes(x = n, y = reorder(word, n))) +
-#   geom_col(show.legend = FALSE) +
-#   facet_wrap(~Region, ncol = 4, scales = "free_y") +
-#   labs(title = "Most Frequently Used Words",
-#        subtitle = "by Region")
-# 
-# ggplot(word.count.region, aes(x = n, y = fct_reorder(word, n), fill = n)) +
-#   geom_col(show.legend = FALSE) +
-#   facet_wrap(~Region, ncol = 4, scales = "free_y") +
-#   labs(title = "Most Frequently Used Words",
-#        subtitle = "by Region")
-
-  #ggplot(aes(tf_idf, fct_reorder(word, tf_idf), fill = Region))
-
-# 
-# word.count.region %>%
-#   mutate(word = reorder(word, n)) %>%
-#   ggplot(aes(n, word, fill=n)) +
-#   geom_col(show.legend = FALSE) +
-#   labs(y = NULL) +
-#   labs(title = "Most Frequently Used Words",
-#        subtitle = "for all Texas LWBs combined") +
-#   theme(panel.background = element_blank())
-
+ggplot(word.count.region, aes(x = n, y = fct_reorder2(word, Region, rank, .fun = last2, .desc = TRUE), fill = n)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  facet_wrap(~Region, ncol = 4, scales = "free_y") +
+  labs(title = "Most Frequently Used Words",
+       subtitle = "by Region") +
+  ylab("")
 
 
 # table
 # kable(word.count.region, caption = "Most Frequently Used Words by Region")
 
 ```
+
+The below graph shows the regions that mention TRS, or the words Texas Rising Star, in non-TRS Activity Categories. There are regions like Concho Valley omitted because they had no mentions.
 
 ```{r frequency}
 
@@ -288,31 +273,35 @@ ggplot(word.count.region, aes(x = n, y = word, fill = n)) +
 # early childhood	
 # child development	
 
-frequency <- words %>% 
+frequency.nontrs <- words.total %>%
+  filter(word != is.na(word),
+         `Activity Category` != "TRS/QRIS (except PD)"|
+           `Activity Category` != "Texas Rising Star/QRIS (except PD)"|
+           `Activity Category` != "Texas Rising Star/Quality Improvement") %>% 
   count(Region, word) %>% 
   group_by(Region) %>% 
   mutate(proportion = n/sum(n)) %>% 
   select(-n) %>% 
   arrange(-proportion) 
 
-# | word == "opportunity", fill = word
- 
 
-frequency %>% 
+frequency.trs <- frequency.nontrs %>% 
   filter(word == "trs" |
          word == "texas" |
          word == "rising" |
-         word == "star") %>% 
-  ungroup() %>% 
-  mutate(Region = reorder(Region, proportion)) %>%
-  mutate(rank = row_number()) %>% 
-  ggplot(aes(x = proportion, y = Region)) +
+         word == "star")
+
+frequency.trs$word <- factor(frequency.trs$word, levels = c("trs", "texas", "rising", "star"))
+ 
+ggplot(frequency.trs, aes(x = proportion, y = reorder(Region, proportion, sum, decreasing = FALSE), fill = word)) +
   geom_col() +
-  labs(title = "TRS Mentions by Region",
-       subtitle = "as a proportion of all words used")
+  labs(title = "TRS Mentions in Non-TRS Activity Categories",
+       subtitle = "as a proportion of words used") +
+  ylab("")
 
 
 ```
+
 
 # Sentiment Analysis
 
